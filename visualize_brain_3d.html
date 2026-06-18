@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>High-Fidelity 4D Brain Attention Visualizer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; background-color: #050505; color: #fff; font-family: sans-serif; overflow: hidden; display: flex; }
+        #canvas-container { flex-grow: 1; height: 100vh; position: relative; }
+        #sidebar { width: 420px; height: 100vh; background: rgba(15, 15, 15, 0.9); border-left: 1px solid #222; display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; z-index: 10; backdrop-filter: blur(12px); overflow-y: auto; }
+        h1 { font-size: 16px; margin: 0 0 5px 0; color: #ff7e5f; text-transform: uppercase; letter-spacing: 1px; }
+        .info { font-size: 11px; color: #888; margin-bottom: 20px; }
+        .control-group { margin-bottom: 20px; border-top: 1px solid #222; padding-top: 15px; }
+        label { display: block; font-size: 10px; font-weight: bold; color: #666; text-transform: uppercase; margin-bottom: 10px; }
+        
+        #matrix-container { position: relative; width: 380px; height: 380px; border: 1px solid #333; background: #000; overflow: hidden; cursor: crosshair; }
+        #attn-canvas { width: 380px; height: 380px; image-rendering: pixelated; transform-origin: top left; }
+        
+        .btn { background: #222; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px; cursor: pointer; font-size: 11px; width: 100%; margin-bottom: 8px; transition: all 0.2s; }
+        .btn:hover { background: #333; border-color: #ff7e5f; }
+        .btn.active { background: #ff7e5f; color: #000; border-color: #ff7e5f; font-weight: bold; }
+        
+        #playback { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+        #slider { flex-grow: 1; accent-color: #ff7e5f; }
+        #frame-lbl { font-family: monospace; font-size: 12px; color: #ff7e5f; min-width: 80px; text-align: right; }
+        
+        #loading { position: absolute; top:0; left:0; width:100%; height:100%; background:#050505; display:flex; flex-direction:column; justify-content:center; align-items:center; z-index:1000; }
+        #progress-wrap { width: 200px; height: 2px; background: #111; margin-top: 20px; }
+        #progress-bar { width: 0%; height: 100%; background: #ff7e5f; }
+        
+        #tooltip { position: absolute; background: rgba(0,0,0,0.9); padding: 10px; border-radius: 4px; font-size: 10px; pointer-events: none; display: none; z-index: 100; border: 1px solid #ff7e5f; font-family: monospace; white-space: pre; }
+        .style-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner" style="width:30px; height:30px; border:2px solid rgba(255,126,95,0.1); border-top:2px solid #ff7e5f; border-radius:50%; animation:spin 1s infinite linear;"></div>
+        <p style="margin-top:20px; font-size:10px; letter-spacing:3px; color:#444;">SYNCING BRAIN DATA...</p>
+        <div id="progress-wrap"><div id="progress-bar"></div></div>
+    </div>
+
+    <div id="canvas-container">
+        <div id="tooltip"></div>
+    </div>
+
+    <div id="sidebar">
+        <h1>Functional Audit</h1>
+        <div class="info" id="sub-info">Synchronizing data streams...</div>
+        
+        <div class="control-group">
+            <label>fMRI Timeline</label>
+            <div id="playback">
+                <button class="btn" id="play-btn" style="width:80px;">Play</button>
+                <input type="range" id="slider" min="0" max="9" value="0">
+            </div>
+            <span id="frame-lbl">Frame 01</span>
+        </div>
+
+        <div class="control-group">
+            <label>Attention Matrix (Active Only)</label>
+            <div class="info">Click to lock coupling. Zoom with slider or mousepad.</div>
+            <div id="matrix-container">
+                <canvas id="attn-canvas" width="556" height="556"></canvas>
+            </div>
+            <div class="style-row" style="margin-top:10px;">
+                <span style="font-size:9px; color:#555; min-width:60px;">MAT ZOOM:</span>
+                <input type="range" id="mat-zoom" min="1" max="20" step="0.1" value="1" style="flex-grow:1; accent-color:#ff7e5f;">
+            </div>
+            <div class="style-row">
+                <span style="font-size:9px; color:#555; min-width:60px;">MAT X:</span>
+                <input type="range" id="mat-x" min="0" max="1" step="0.001" value="0" style="flex-grow:1; accent-color:#ff7e5f;">
+            </div>
+            <div class="style-row">
+                <span style="font-size:9px; color:#555; min-width:60px;">MAT Y:</span>
+                <input type="range" id="mat-y" min="0" max="1" step="0.001" value="0" style="flex-grow:1; accent-color:#ff7e5f;">
+            </div>
+            <div class="style-row" style="margin-top:10px;">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                    <input type="checkbox" id="norm-dist" style="accent-color:#ff7e5f;">
+                    <span style="font-size:10px; color:#aaa; font-weight:bold;">NORMALIZE DISTANCE</span>
+                </label>
+            </div>
+            <div style="margin-top:12px; display:flex; gap:10px;">
+                <button class="btn active" id="mode-avg">Global Avg</button>
+                <button class="btn" id="mode-frame">Live Frame</button>
+            </div>
+            <button class="btn" id="reset-btn" style="background:#000; border-style:dashed;">Reset Selection</button>
+        </div>
+
+        <div class="control-group">
+            <label>Voxel Style (matches index.html)</label>
+            <div class="style-row">
+                <span style="font-size:9px; color:#555; min-width:60px;">Z-THRESH:</span>
+                <input type="range" id="thresh" min="0" max="4" step="0.1" value="2.0" style="flex-grow:1; accent-color:#ff7e5f;">
+            </div>
+            <div class="style-row">
+                <span style="font-size:9px; color:#555; min-width:60px;">PT SIZE:</span>
+                <input type="range" id="pt-size" min="1" max="10" step="0.5" value="3.5" style="flex-grow:1; accent-color:#ff7e5f;">
+            </div>
+            <div class="style-row">
+                <span style="font-size:9px; color:#555; min-width:60px;">OPACITY:</span>
+                <input type="range" id="pt-opacity" min="0.05" max="1.0" step="0.05" value="0.20" style="flex-grow:1; accent-color:#ff7e5f;">
+            </div>
+            <div class="style-row">
+                <span style="font-size:9px; color:#555; min-width:60px;">BRAIN SHELL:</span>
+                <input type="checkbox" id="shell-checkbox" checked style="accent-color: #ff7e5f; cursor: pointer;">
+                <span style="font-size: 11px; color: #ff7e5f; font-weight: bold; margin-left: 5px;">ON</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let metadata, voxelX, voxelY, voxelZ, voxelPatchIdx, voxelValues;
+        let avgAttn, seriesAttn;
+        let scene, camera, renderer, controls, voxelPoints, ghostPoints, shellMesh;
+        let currentFrame = 0, isPlaying = false, playInterval = null;
+        let currentMode = 'avg', selectedSource = null, selectedTarget = null;
+        let sourceBox, targetBox;
+
+        // Matrix Rendering & Distance Normalization
+        let matZoom = 1.0, matOffsetX = 0, matOffsetY = 0;
+        let offscreenCanvas = document.createElement('canvas');
+        let offscreenCtx = offscreenCanvas.getContext('2d');
+        let distMatrix = null;
+
+        const MAGMA = [[5,4,15], [80,15,80], [180,40,80], [250,110,30], [253,200,90], [255,255,255]];
+
+        function getMagmaColor(val) {
+            val = Math.max(0, Math.min(1, val));
+            const scaled = val * 5;
+            const idx = Math.floor(scaled);
+            const f = scaled - idx;
+            const c1 = MAGMA[idx], c2 = MAGMA[Math.min(idx + 1, 5)];
+            return new THREE.Color((c1[0]+(c2[0]-c1[0])*f)/255, (c1[1]+(c2[1]-c1[1])*f)/255, (c1[2]+(c2[2]-c1[2])*f)/255);
+        }
+
+        function createCircleTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32; canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            ctx.fillStyle = grad; ctx.fillRect(0, 0, 32, 32);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function convertF16(val) {
+            const s = (val & 0x8000) >> 15, e = (val & 0x7C00) >> 10, f = val & 0x03FF;
+            if(e === 0) return (s?-1:1) * 2**-14 * (f/1024);
+            if(e === 31) return f === 0 ? (s?-Infinity:Infinity) : NaN;
+            return (s?-1:1) * 2**(e-15) * (1 + f/1024);
+        }
+
+        async function load() {
+            const response = await fetch('brain_viz_sparse.bin.gz');
+            const total = 6500000;
+            const reader = response.body.getReader();
+            let received = 0, chunks = [];
+            while(true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                chunks.push(value); received += value.length;
+                document.getElementById('progress-bar').style.width = (received/total*100) + '%';
+            }
+            const uint8 = new Uint8Array(received);
+            let pos = 0; for(let chunk of chunks) { uint8.set(chunk, pos); pos += chunk.length; }
+            const ds = new DecompressionStream('gzip');
+            const stream = new Response(uint8).body.pipeThrough(ds);
+            const buffer = await new Response(stream).arrayBuffer();
+            const view = new DataView(buffer);
+            metadata = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer.slice(12, 12 + view.getUint32(8, true)))));
+            const offset = Math.ceil((12 + view.getUint32(8, true)) / 4) * 4;
+            const N = metadata.num_active, T = metadata.num_frames, M = metadata.num_sparse_patches;
+            voxelX = new Float32Array(buffer, offset, N);
+            voxelY = new Float32Array(buffer, offset + N*4, N);
+            voxelZ = new Float32Array(buffer, offset + N*8, N);
+            voxelPatchIdx = new Uint16Array(buffer, offset + N*12, N);
+            voxelValues = new Float32Array(buffer, Math.ceil((offset + N*14)/4)*4, N*T);
+            avgAttn = new Float32Array(buffer, Math.ceil((Math.ceil((offset + N*14)/4)*4 + N*T*4)/4)*4, M*M);
+            seriesAttn = new Uint16Array(buffer, Math.ceil((Math.ceil((offset + N*14)/4)*4 + N*T*4)/4)*4 + M*M*4, T*M*M);
+            document.getElementById('loading').style.display = 'none';
+            initViz();
+        }
+
+        function initViz() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(40, (window.innerWidth - 420) / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth - 420, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            // 1. Brain Ghost (Outline of all potential tissue)
+            const ghostGeo = new THREE.BufferGeometry();
+            ghostGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(metadata.num_active * 3), 3));
+            const gpArr = ghostGeo.attributes.position.array;
+            for(let i=0; i<metadata.num_active; i++){ 
+                gpArr[i*3]=voxelX[i] * metadata.zooms[0]; 
+                gpArr[i*3+1]=voxelY[i] * metadata.zooms[1]; 
+                gpArr[i*3+2]=voxelZ[i] * metadata.zooms[2]; 
+            }
+            ghostPoints = new THREE.Points(ghostGeo, new THREE.PointsMaterial({ size: 1.0, color: 0x333333, transparent: true, opacity: 0.05, depthWrite: false }));
+            scene.add(ghostPoints);
+
+            // 2. Active Points (High Fidelity / Additive)
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(metadata.num_active * 3), 3));
+            geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(metadata.num_active * 3), 3));
+            voxelPoints = new THREE.Points(geo, new THREE.PointsMaterial({ 
+                size: 3.5, vertexColors: true, transparent: true, opacity: 0.20, 
+                depthWrite: false, map: createCircleTexture(), blending: THREE.AdditiveBlending 
+            }));
+            scene.add(voxelPoints);
+
+            // 3. Line-based Brain Shell (Matches index.html)
+            generateLineShell();
+
+            const boxGeo = new THREE.BoxGeometry(4.1 * metadata.zooms[0] / 4, 4.1 * metadata.zooms[1] / 4, 4.1 * metadata.zooms[2] / 4);
+            sourceBox = new THREE.Mesh(boxGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true }));
+            targetBox = new THREE.Mesh(boxGeo, new THREE.MeshBasicMaterial({ color: 0xff7e5f, wireframe: true }));
+            sourceBox.visible = targetBox.visible = false;
+            scene.add(sourceBox, targetBox);
+
+            let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity, minZ=Infinity, maxZ=-Infinity;
+            for(let i=0; i<metadata.num_active; i++){
+                const vx = voxelX[i] * metadata.zooms[0], vy = voxelY[i] * metadata.zooms[1], vz = voxelZ[i] * metadata.zooms[2];
+                minX=Math.min(minX, vx); maxX=Math.max(maxX, vx);
+                minY=Math.min(minY, vy); maxY=Math.max(maxY, vy);
+                minZ=Math.min(minZ, vz); maxZ=Math.max(maxZ, vz);
+            }
+            const center = new THREE.Vector3((minX+maxX)/2, (minY+maxY)/2, (minZ+maxZ)/2);
+            controls.target.copy(center);
+            camera.position.set(center.x, center.y - 180, center.z + 220);
+
+            drawMatrix(); setupEvents(); update(0); animate();
+        }
+
+        function generateLineShell() {
+            const nx = metadata.shape[1], ny = metadata.shape[2], nz = metadata.shape[3];
+            const zoomX = metadata.zooms[0], zoomY = metadata.zooms[1], zoomZ = metadata.zooms[2];
+            
+            let minX = voxelX[0], minY = voxelY[0], minZ = voxelZ[0];
+            for (let i = 1; i < metadata.num_active; i++) {
+                if (voxelX[i] < minX) minX = voxelX[i];
+                if (voxelY[i] < minY) minY = voxelY[i];
+                if (voxelZ[i] < minZ) minZ = voxelZ[i];
+            }
+
+            const grid = new Int32Array(nx * ny * nz);
+            const voxelGridCoords = new Int32Array(metadata.num_active * 3);
+            for (let p = 0; p < metadata.num_active; p++) {
+                const i = Math.round(Math.abs(voxelX[p] - minX) / 1);
+                const j = Math.round(Math.abs(voxelY[p] - minY) / 1);
+                const k = Math.round(Math.abs(voxelZ[p] - minZ) / 1);
+                voxelGridCoords[p * 3] = i; voxelGridCoords[p * 3 + 1] = j; voxelGridCoords[p * 3 + 2] = k;
+                if (i >= 0 && i < nx && j >= 0 && j < ny && k >= 0 && k < nz) grid[i * ny * nz + j * nz + k] = p + 1;
+            }
+
+            const isBoundary = new Uint8Array(metadata.num_active);
+            for (let p = 0; p < metadata.num_active; p++) {
+                const i = voxelGridCoords[p * 3], j = voxelGridCoords[p * 3 + 1], k = voxelGridCoords[p * 3 + 2];
+                if (i <= 0 || i >= nx - 1 || j <= 0 || j >= ny - 1 || k <= 0 || k >= nz - 1) { isBoundary[p] = 1; continue; }
+                const neighbors = [
+                    grid[(i+1)*ny*nz+j*nz+k], grid[(i-1)*ny*nz+j*nz+k],
+                    grid[i*ny*nz+(j+1)*nz+k], grid[i*ny*nz+(j-1)*nz+k],
+                    grid[i*ny*nz+j*nz+(k+1)], grid[i*ny*nz+j*nz+(k-1)]
+                ];
+                if (neighbors.some(n => !n)) isBoundary[p] = 1;
+            }
+
+            const linePos = [];
+            for (let p = 0; p < metadata.num_active; p++) {
+                if (!isBoundary[p]) continue;
+                const i = voxelGridCoords[p*3], j = voxelGridCoords[p*3+1], k = voxelGridCoords[p*3+2];
+                const check = [{di:1,dj:0,dk:0}, {di:0,dj:1,dk:0}, {di:0,dj:0,dk:1}];
+                for (let o = 0; o < check.length; o++) {
+                    const ni = i+check[o].di, nj = j+check[o].dj, nk = k+check[o].dk;
+                    if (ni < nx && nj < ny && nk < nz) {
+                        const nVal = grid[ni * ny * nz + nj * nz + nk];
+                        if (nVal > 0 && isBoundary[nVal - 1]) {
+                            linePos.push(voxelX[p]*zoomX, voxelY[p]*zoomY, voxelZ[p]*zoomZ, voxelX[nVal-1]*zoomX, voxelY[nVal-1]*zoomY, voxelZ[nVal-1]*zoomZ);
+                        }
+                    }
+                }
+            }
+
+            const shellGeo = new THREE.BufferGeometry();
+            shellGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePos, 3));
+            shellMesh = new THREE.LineSegments(shellGeo, new THREE.LineBasicMaterial({ color: 0x666666, transparent: true, opacity: 0.25, depthWrite: false }));
+            scene.add(shellMesh);
+        }
+
+        function drawMatrix(hRow = null, hCol = null) {
+            const canvas = document.getElementById('attn-canvas'), ctx = canvas.getContext('2d'), M = metadata.num_sparse_patches;
+            if (canvas.width !== 380) { canvas.width = canvas.height = 380; offscreenCanvas.width = offscreenCanvas.height = M; }
+
+            if (!distMatrix && metadata.patch_positions) {
+                distMatrix = new Float32Array(M * M);
+                for (let i = 0; i < M; i++) {
+                    for (let j = 0; j < M; j++) {
+                        const dx = metadata.patch_positions[i*3] - metadata.patch_positions[j*3];
+                        const dy = metadata.patch_positions[i*3+1] - metadata.patch_positions[j*3+1];
+                        const dz = metadata.patch_positions[i*3+2] - metadata.patch_positions[j*3+2];
+                        distMatrix[i*M + j] = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                    }
+                }
+            }
+            
+            const doNorm = document.getElementById('norm-dist').checked;
+            const imgData = offscreenCtx.createImageData(M, M);
+            const sourceArr = currentMode === 'avg' ? avgAttn : seriesAttn.subarray(currentFrame * M * M, (currentFrame + 1) * M * M);
+            const tempVals = new Float32Array(M * M);
+            for(let i=0; i<M*M; i++) { 
+                let v = currentMode === 'avg' ? sourceArr[i] : convertF16(sourceArr[i]); 
+                if (doNorm) v *= (distMatrix[i] || 1);
+                tempVals[i] = v;
+            }
+            const sorted = new Float32Array(tempVals).sort();
+            const p98 = sorted[Math.floor(sorted.length * 0.98)] || 1.0;
+            for(let i=0; i<M*M; i++) {
+                const val = Math.min(1.0, tempVals[i] / p98);
+                const color = getMagmaColor(val);
+                imgData.data[i*4]=color.r*255; imgData.data[i*4+1]=color.g*255; imgData.data[i*4+2]=color.b*255; imgData.data[i*4+3]=255;
+            }
+            offscreenCtx.putImageData(imgData, 0, 0);
+
+            ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 380, 380);
+            ctx.save();
+            ctx.imageSmoothingEnabled = false;
+            const maxOff = 380 * (1 - matZoom);
+            ctx.translate(matOffsetX * maxOff, matOffsetY * maxOff);
+            ctx.scale(matZoom, matZoom);
+            ctx.drawImage(offscreenCanvas, 0, 0, M, M, 0, 0, 380, 380);
+
+            ctx.setLineDash([]);
+            if (metadata.active_patch_ids) {
+                const sf = 380 / M;
+                for (let i = 1; i < M; i++) {
+                    const id = metadata.active_patch_ids[i], prevId = metadata.active_patch_ids[i-1];
+                    if (Math.floor(id/144) !== Math.floor(prevId/144)) {
+                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'; ctx.lineWidth = 1/matZoom;
+                        ctx.beginPath(); ctx.moveTo(0, i*sf); ctx.lineTo(380, i*sf); ctx.moveTo(i*sf, 0); ctx.lineTo(i*sf, 380); ctx.stroke();
+                    } else if (Math.floor(id/12) !== Math.floor(prevId/12)) {
+                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.lineWidth = 1/matZoom;
+                        ctx.beginPath(); ctx.moveTo(0, i*sf); ctx.lineTo(380, i*sf); ctx.moveTo(i*sf, 0); ctx.lineTo(i*sf, 380); ctx.stroke();
+                    }
+                }
+            }
+            if (hRow !== null) {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'; ctx.lineWidth = 1/matZoom;
+                ctx.beginPath(); ctx.moveTo(0, hRow*(380/M)); ctx.lineTo(380, hRow*(380/M)); ctx.moveTo(hCol*(380/M), 0); ctx.lineTo(hCol*(380/M), 380); ctx.stroke();
+            }
+            if (selectedSource !== null) {
+                ctx.strokeStyle = '#ff7e5f'; ctx.lineWidth = 2/matZoom; ctx.setLineDash([2/matZoom, 2/matZoom]);
+                ctx.beginPath(); ctx.moveTo(0, selectedSource*(380/M)); ctx.lineTo(380, selectedSource*(380/M)); ctx.moveTo(selectedTarget*(380/M), 0); ctx.lineTo(selectedTarget*(380/M), 380); ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        function updateBoxes(row, col) {
+            if (row !== null && metadata.patch_positions) {
+                sourceBox.position.set(metadata.patch_positions[row*3], metadata.patch_positions[row*3+1], metadata.patch_positions[row*3+2]);
+                sourceBox.visible = true;
+                if (col !== null) {
+                    targetBox.position.set(metadata.patch_positions[col*3], metadata.patch_positions[col*3+1], metadata.patch_positions[col*3+2]);
+                    targetBox.visible = true;
+                } else targetBox.visible = false;
+            } else if (selectedSource !== null) {
+                sourceBox.position.set(metadata.patch_positions[selectedSource*3], metadata.patch_positions[selectedSource*3+1], metadata.patch_positions[selectedSource*3+2]);
+                sourceBox.visible = true;
+                if (selectedTarget !== null) {
+                    targetBox.position.set(metadata.patch_positions[selectedTarget*3], metadata.patch_positions[selectedTarget*3+1], metadata.patch_positions[selectedTarget*3+2]);
+                    targetBox.visible = true;
+                } else targetBox.visible = false;
+            } else { sourceBox.visible = targetBox.visible = false; }
+        }
+
+        function update(t) {
+            currentFrame = t;
+            document.getElementById('frame-lbl').innerText = `FRAME ${String(t+1).padStart(2, '0')}`;
+            document.getElementById('slider').value = t;
+            drawMatrix(); updateBoxes(null, null);
+            const pos = voxelPoints.geometry.attributes.position.array, col = voxelPoints.geometry.attributes.color.array;
+            const thresh = parseFloat(document.getElementById('thresh').value), N = metadata.num_active;
+            for(let i=0; i<N; i++) {
+                const val = voxelValues[t * N + i]; const i3 = i * 3;
+                if(val < thresh) { pos[i3]=pos[i3+1]=pos[i3+2]=9999; }
+                else { pos[i3]=voxelX[i]*metadata.zooms[0]; pos[i3+1]=voxelY[i]*metadata.zooms[1]; pos[i3+2]=voxelZ[i]*metadata.zooms[2]; }
+                const color = getMagmaColor(Math.max(0, val / 3.0));
+                col[i3]=color.r; col[i3+1]=color.g; col[i3+2]=color.b;
+            }
+            voxelPoints.geometry.attributes.position.needsUpdate = true;
+            voxelPoints.geometry.attributes.color.needsUpdate = true;
+        }
+
+        function setupEvents() {
+            const container = document.getElementById('matrix-container'), canvas = document.getElementById('attn-canvas'), tooltip = document.getElementById('tooltip'), M = metadata.num_sparse_patches;
+            function getMatrixCoords(e) {
+                const rect = container.getBoundingClientRect();
+                const mx = (e.clientX - rect.left) * (M/380), my = (e.clientY - rect.top) * (M/380);
+                const maxOff = 380 * (1 - matZoom);
+                const wx = (mx - matOffsetX * maxOff) / matZoom, wy = (my - matOffsetY * maxOff) / matZoom;
+                return { row: Math.floor(wy * (M/380)), col: Math.floor(wx * (M/380)) };
+            }
+            canvas.onmousemove = (e) => {
+                const { row, col } = getMatrixCoords(e);
+                if (row < 0 || row >= M || col < 0 || col >= M) { tooltip.style.display = 'none'; drawMatrix(); return; }
+                tooltip.style.display = 'block'; tooltip.style.left = (e.clientX+20)+'px'; tooltip.style.top = (e.clientY+20)+'px';
+                const sourceArr = currentMode === 'avg' ? avgAttn : seriesAttn.subarray(currentFrame * M * M, (currentFrame + 1) * M * M);
+                const val = currentMode === 'avg' ? sourceArr[row * M + col] : convertF16(sourceArr[row * M + col]);
+                tooltip.innerHTML = `SRC: ${row} | TGT: ${col}<br>COUPLING: ${(val*100).toFixed(4)}%`;
+                drawMatrix(row, col); updateBoxes(row, col);
+            };
+            container.onwheel = (e) => {
+                e.preventDefault(); const scale = Math.exp(-e.deltaY * 0.002);
+                matZoom = Math.min(20, Math.max(1, matZoom * scale));
+                if (matZoom <= 1) matOffsetX = matOffsetY = 0;
+                document.getElementById('mat-zoom').value = matZoom; drawMatrix();
+            };
+            document.getElementById('mat-zoom').oninput = (e) => { matZoom = parseFloat(e.target.value); drawMatrix(); };
+            document.getElementById('mat-x').oninput = (e) => { matOffsetX = parseFloat(e.target.value); drawMatrix(); };
+            document.getElementById('mat-y').oninput = (e) => { matOffsetY = parseFloat(e.target.value); drawMatrix(); };
+            document.getElementById('norm-dist').onchange = () => drawMatrix();
+            canvas.onmouseleave = () => { tooltip.style.display = 'none'; drawMatrix(); updateBoxes(null, null); };
+            canvas.onclick = (e) => {
+                const { row, col } = getMatrixCoords(e);
+                if (row >= 0 && row < M && col >= 0 && col < M) { selectedTarget = col; selectedSource = row; update(currentFrame); }
+            };
+            document.getElementById('reset-btn').onclick = () => { selectedSource = selectedTarget = null; update(currentFrame); };
+            document.getElementById('play-btn').onclick = function() {
+                isPlaying = !isPlaying; this.innerText = isPlaying ? "Pause" : "Play";
+                if(isPlaying) playInterval = setInterval(() => update((currentFrame + 1) % metadata.num_frames), 200);
+                else clearInterval(playInterval);
+            };
+            document.getElementById('slider').oninput = (e) => update(parseInt(e.target.value));
+            document.getElementById('thresh').oninput = (e) => update(currentFrame);
+            document.getElementById('pt-size').oninput = (e) => { voxelPoints.material.size = parseFloat(e.target.value); };
+            document.getElementById('pt-opacity').oninput = (e) => { voxelPoints.material.opacity = parseFloat(e.target.value); };
+            document.getElementById('shell-checkbox').onchange = (e) => { shellMesh.visible = e.target.checked; };
+            document.getElementById('mode-avg').onclick = function() { currentMode='avg'; this.classList.add('active'); document.getElementById('mode-frame').classList.remove('active'); drawMatrix(); update(currentFrame); };
+            document.getElementById('mode-frame').onclick = function() { currentMode='frame'; this.classList.add('active'); document.getElementById('mode-avg').classList.remove('active'); drawMatrix(); update(currentFrame); };
+            window.onresize = () => { renderer.setSize(window.innerWidth - 420, window.innerHeight); camera.aspect = (window.innerWidth - 420) / window.innerHeight; camera.updateProjectionMatrix(); };
+        }
+        function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+        load();
+    </script>
+</body>
+</html>
