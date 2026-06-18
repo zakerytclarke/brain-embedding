@@ -9,14 +9,6 @@ The resulting embeddings can be used for downstream prediction tasks including p
 
 ---
 
-## Overview
-
-One of the primary challenges in neuroimaging machine learning is scanner-site bias. MRI hardware, acquisition protocols, and preprocessing pipelines introduce site-specific signatures that can dominate learned representations and inflate apparent model performance.
-
-Brain-Embedding addresses this challenge through adversarial site-invariant representation learning. During training, the encoder is optimized to preserve biological information while minimizing information related to acquisition site.
-
----
-
 ## Architecture
 
 ### Preprocessing
