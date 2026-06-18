@@ -114,7 +114,6 @@ Source: https://bicr-resource.atr.jp/srpbsopen/
 |--------|----------|--------|
 | ASD Classification | 31.5% | 0.6509 |
 | MDD Classification | 73.4% | 0.5907 |
-| Sex Classification | 58.5% | 0.5951 |
 | Age (<30) Classification | 66.0% | 0.5477 |
 
 ---
@@ -134,7 +133,6 @@ Source: https://openneuro.org/datasets/ds002748/versions/1.0.5
 |--------|----------|--------|
 | MDD Classification | 71.4% | 0.6250 |
 | Age (<30) Classification | 57.1% | 0.6875 |
-| Sex Classification | 71.4% | 0.4750 |
 
 These results suggest that learned representations retain predictive information when transferred to previously unseen acquisition environments.
 
